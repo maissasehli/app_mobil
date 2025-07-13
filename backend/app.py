@@ -236,6 +236,69 @@ def image_to_base64(image, quality=85):
     _, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return base64.b64encode(buffer).decode('utf-8')
 
+def save_result_images(analysis_id, results):
+    """Save result images to the results folder"""
+    results_dir = os.path.join(app.config['RESULTS_FOLDER'], analysis_id)
+    os.makedirs(results_dir, exist_ok=True)
+    
+    saved_files = {}
+    
+    try:
+        # Save original aligned images
+        img1_path = os.path.join(results_dir, 'image1_original.jpg')
+        img2_path = os.path.join(results_dir, 'image2_original.jpg')
+        cv2.imwrite(img1_path, results['img1_original'])
+        cv2.imwrite(img2_path, results['img2_original'])
+        saved_files['image1_original'] = img1_path
+        saved_files['image2_original'] = img2_path
+        
+        # Save marked images (with difference rectangles)
+        img1_marked_path = os.path.join(results_dir, 'image1_marked.jpg')
+        img2_marked_path = os.path.join(results_dir, 'image2_marked.jpg')
+        cv2.imwrite(img1_marked_path, results['img1_marked'])
+        cv2.imwrite(img2_marked_path, results['img2_marked'])
+        saved_files['image1_marked'] = img1_marked_path
+        saved_files['image2_marked'] = img2_marked_path
+        
+        # Save superposition images
+        superposition_path = os.path.join(results_dir, 'superposition.jpg')
+        superposition_marked_path = os.path.join(results_dir, 'superposition_marked.jpg')
+        cv2.imwrite(superposition_path, results['superposition'])
+        cv2.imwrite(superposition_marked_path, results['superposition_marked'])
+        saved_files['superposition'] = superposition_path
+        saved_files['superposition_marked'] = superposition_marked_path
+        
+        # Save difference maps
+        diff_map_path = os.path.join(results_dir, 'difference_map.jpg')
+        threshold_map_path = os.path.join(results_dir, 'threshold_map.jpg')
+        cv2.imwrite(diff_map_path, results['difference_map'])
+        cv2.imwrite(threshold_map_path, results['threshold_map'])
+        saved_files['difference_map'] = diff_map_path
+        saved_files['threshold_map'] = threshold_map_path
+        
+        # Save analysis summary as JSON
+        summary_path = os.path.join(results_dir, 'analysis_summary.json')
+        import json
+        summary = {
+            'analysis_id': analysis_id,
+            'timestamp': datetime.now().isoformat(),
+            'num_differences': results['num_differences'],
+            'similarity': float(results['similarity']),
+            'difference_percentage': float(results['difference_percentage']),
+            'alignment_method': results['alignment_method'],
+            'saved_files': saved_files
+        }
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        saved_files['analysis_summary'] = summary_path
+        
+        logger.info(f"Results saved to: {results_dir}")
+        return saved_files
+        
+    except Exception as e:
+        logger.error(f"Error saving results: {e}")
+        return {}
+
 def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -314,7 +377,10 @@ def compare_images():
             detector.set_alignment_method(alignment_method)
             results = detector.process_images_from_files(image1_path, image2_path, sensitivity, min_area, align)
             
-            # OPTIMIZED: Return only the 3 most important images with higher compression
+            # NOUVEAU: Sauvegarder les résultats dans le dossier results
+            saved_files = save_result_images(analysis_id, results)
+            
+            # Return response with base64 images and file paths
             response_data = {
                 'success': True,
                 'analysis_id': analysis_id,
@@ -328,6 +394,7 @@ def compare_images():
                     'difference_percentage': float(results['difference_percentage']),
                     'alignment_method': results['alignment_method']
                 },
+                'saved_files': saved_files,  # NOUVEAU: Chemins des fichiers sauvegardés
                 'parameters': {
                     'sensitivity': sensitivity,
                     'min_area': min_area,
@@ -340,6 +407,7 @@ def compare_images():
             import json
             response_size = len(json.dumps(response_data)) / (1024 * 1024)
             logger.info(f"Response size: {response_size:.2f} MB")
+            logger.info(f"Files saved: {len(saved_files)} files")
             
             logger.info("Image comparison completed successfully")
             return jsonify(response_data)
